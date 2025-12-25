@@ -1,3 +1,14 @@
+---
+title: SAR Image Colorization
+emoji: 🛰️
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+pinned: false
+license: mit
+short_description: Colorize SAR images using Deep Learning
+---
+
 # 🛰️ SAR Image Colorization
 
 > **Smart India Hackathon 2024 (SIH-24) Winning Project**
