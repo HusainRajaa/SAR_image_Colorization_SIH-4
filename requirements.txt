@@ -5,3 +5,4 @@ torchvision
 numpy
 opencv-python-headless
 gunicorn
+flask-cors
