@@ -2,7 +2,8 @@ import os
 # CHANGE 1: Move this to the very top, BEFORE importing torch
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-from flask import Flask, request, render_template, redirect, url_for, jsonify
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from PIL import Image
 import torch
@@ -15,7 +16,8 @@ import numpy as np
 
 
 # Flask app initialization
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
+CORS(app)  # Enable CORS for React dev server
 
 # CHANGE 2: Force device to CPU (Do not check for CUDA)
 device = torch.device("cpu")
@@ -98,7 +100,6 @@ class Generator(nn.Module):
 # Initialize the Generator
 # CHANGE 3: Ensure model is explicitly moved to CPU after loading
 G1 = Generator(input_nc=1, output_nc=3).to(device)
-import os
 G1.load_state_dict(torch.load(os.path.join("weights", "best_G1.pth"), map_location=device, weights_only=False))
 G1.to(device) # Double check to ensure it stays on CPU
 G1.eval()
@@ -188,18 +189,24 @@ def calculate_greenery_rate(image_path):
 
     return greenery_rate
 
-# Flask routes
-@app.route('/')
-def index():
-    return render_template('index.html')
 
-@app.route('/upload', methods=['POST'])
-def upload_image():
+# Folder to save uploaded images
+UPLOAD_FOLDER = 'static/uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+
+# ==================== API ENDPOINTS ====================
+
+@app.route('/api/colorize', methods=['POST'])
+def api_colorize():
     if 'file' not in request.files:
-        return "No file part"
+        return jsonify({"error": "No file part"}), 400
+    
     file = request.files['file']
     if file.filename == '':
-        return "No selected file"
+        return jsonify({"error": "No selected file"}), 400
+    
     if file:
         uploaded_image_path = os.path.join("static", "uploaded_image.png")
         file.save(uploaded_image_path)
@@ -218,41 +225,36 @@ def upload_image():
         # Calculate greenery rate
         greenery_rate = calculate_greenery_rate(colorized_image_path)
 
-        return render_template(
-            'result.html',
-            uploaded_image_url="/static/uploaded_image.png",
-            colorized_image_url="/static/colorized_image.png",
-            greenery_rate=f"{greenery_rate:.2f}%"
-        )
-
-# Folder to save uploaded images
-UPLOAD_FOLDER = 'static/uploads'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-@app.route('/greenery', methods=['GET'])
-def greenery_rate_page():
-    return render_template('greenery.html')
+        return jsonify({
+            "uploaded_url": "/static/uploaded_image.png",
+            "colorized_url": "/static/colorized_image.png",
+            "greenery_rate": f"{greenery_rate:.2f}%"
+        })
 
 
-@app.route('/greenery-upload', methods=['POST'])
-def greenery_upload():
+@app.route('/api/greenery', methods=['POST'])
+def api_greenery():
     if 'file' not in request.files:
-        return redirect(request.url)
+        return jsonify({"error": "No file part"}), 400
+    
     file = request.files['file']
     if file.filename == '':
-        return redirect(request.url)
+        return jsonify({"error": "No selected file"}), 400
+    
     if file:
         # Save the file
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
-        # Dummy greenery rate calculation (replace with your logic)
+        # Calculate greenery rate
         greenery_rate = calculate_greenery_rate(filepath)
 
-        # Pass the image URL and greenery rate to the template
-        uploaded_image_url = url_for('static', filename=f'uploads/{filename}')
-        return render_template('greenery.html', uploaded_image_url=uploaded_image_url, greenery_rate=f"{greenery_rate:.2f}%")
+        return jsonify({
+            "image_url": f"/static/uploads/{filename}",
+            "greenery_rate": f"{greenery_rate:.2f}%"
+        })
+
 
 # Predefined chatbot data
 faq_data = [
@@ -303,12 +305,9 @@ faq_data = [
     },
 ]
 
-@app.route('/chatbot')
-def chatbot():
-    return render_template('chatbot.html')
 
-@app.route('/chatbot/ask', methods=['POST'])
-def chatbot_ask():
+@app.route('/api/chatbot', methods=['POST'])
+def api_chatbot():
     user_question = request.json.get('question', '').lower()
 
     # Scoring mechanism for relevance
@@ -325,5 +324,28 @@ def chatbot_ask():
     response = best_match["response"] if best_match else "Sorry, I couldn't find an answer to your question."
     return jsonify({'response': response})
 
+
+# ==================== SERVE REACT BUILD IN PRODUCTION ====================
+
+# Serve React app for all other routes (production)
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react(path):
+    # Check if it's an API route
+    if path.startswith('api/'):
+        return jsonify({"error": "Not found"}), 404
+    
+    # Serve static files from React build
+    if path and os.path.exists(os.path.join('frontend/dist', path)):
+        return send_from_directory('frontend/dist', path)
+    
+    # Serve React index.html for all other routes (SPA routing)
+    if os.path.exists('frontend/dist/index.html'):
+        return send_from_directory('frontend/dist', 'index.html')
+    
+    # Fallback for development (React dev server handles it)
+    return jsonify({"message": "React frontend not built. Run 'npm run build' in frontend/"}), 200
+
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
