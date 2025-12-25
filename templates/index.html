@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sarva Conquerors - SAR Analysis</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        /* --- CORE UI STYLES --- */
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+        
+        body {
+            background-color: #02040a; /* Deep Space Black/Blue */
+            overflow: hidden; /* No scrollbars */
+            height: 100vh;
+            color: white;
+        }
+
+        /* The Canvas for 3D Earth */
+        #canvas-container {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1; /* Behind UI */
+            background: radial-gradient(circle at 50% 50%, #0f172a 0%, #02040a 100%);
+        }
+
+        /* --- UI OVERLAY (Z-Index > 1) --- */
+        .ui-layer {
+            position: relative;
+            z-index: 10;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            pointer-events: none; /* Let clicks pass through to the globe where empty */
+        }
+
+        /* Navbar */
+        .navbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 3rem;
+            width: 100%;
+            pointer-events: auto; /* Re-enable clicks */
+            background: linear-gradient(to bottom, rgba(2,4,10,0.8), transparent);
+        }
+        .logo { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 0 20px rgba(168, 85, 247, 0.5); }
+        .nav-right { font-size: 1.1rem; color: #cbd5e1; }
+
+        /* Main Center Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center; /* Centered */
+            padding: 2rem;
+            pointer-events: auto; /* IMPORTANT: Enables clicking on cards/buttons */
+        }
+
+        /* Glassmorphism Upload Card */
+        .upload-card {
+            background: rgba(15, 23, 42, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4), inset 0 0 20px rgba(168, 85, 247, 0.05);
+            backdrop-filter: blur(12px);
+            border-radius: 24px;
+            padding: 3rem;
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+
+        /* Dashed Drop Zone inside Card */
+        .drop-zone {
+            border: 2px dashed rgba(168, 85, 247, 0.4);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            background: rgba(168, 85, 247, 0.03);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        .drop-zone.dragover {
+            background: rgba(168, 85, 247, 0.15);
+            border-color: #d8b4fe;
+            transform: scale(1.02);
+        }
+
+        .upload-text { font-size: 1.1rem; color: #e2e8f0; margin-bottom: 1rem; }
+        
+        #file-name-display {
+            display: block;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+            color: #94a3b8;
+            font-style: italic;
+            height: 20px; /* Prevent jump when text appears */
+        }
+
+        .btn-group { display: flex; justify-content: center; gap: 15px; align-items: center; }
+
+        /* Buttons */
+        .btn {
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+            border: none;
+            padding: 0.9rem 2.2rem;
+            border-radius: 50px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1rem;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(124, 58, 237, 0.6);
+            filter: brightness(1.1);
+        }
+        
+        /* Secondary Upload Button Style */
+        .btn-upload {
+            background: linear-gradient(135deg, #2563eb, #06b6d4);
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+        }
+
+        .btn-outline {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: none;
+            backdrop-filter: blur(5px);
+        }
+        .btn-outline:hover { 
+            background: rgba(255,255,255,0.15); 
+            border-color: white;
+        }
+
+        /* Bottom Nav */
+        .feature-nav {
+            margin-top: 2rem;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap; /* Fix for smaller screens */
+        }
+        
+        input[type="file"] { display: none; }
+
+        /* Loading Overlay */
+        #loading {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(5px);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: white;
+        }
+        .spinner {
+            border: 3px solid rgba(255,255,255,0.1); 
+            border-top: 3px solid #a855f7;
+            border-radius: 50%; width: 50px; height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .navbar { padding: 1rem; flex-direction: column; gap: 10px; }
+            .upload-card { padding: 2rem; width: 95%; }
+            .btn-group { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <p style="letter-spacing: 2px; font-size: 0.9rem;">PROCESSING SAR DATA...</p>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div class="ui-layer">
+        
+        <nav class="navbar">
+            <div class="logo"><i class="fa-solid fa-earth-americas"></i> SAR Image Colorization</div>
+            <div class="nav-right">SIH-24 Winning Project</div>
+        </nav>
+
+        <main class="main-content">
+            
+            <div class="upload-card">
+                <div class="drop-zone" id="drop-area">
+                    <div style="font-size: 3rem; color: #a855f7; margin-bottom: 1rem;">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                    </div>
+                    <p class="upload-text">Drag & drop your SAR imagery here</p>
+                    
+                    <span id="file-name-display">No file chosen</span>
+                    
+                    <form action="/upload" method="post" enctype="multipart/form-data" id="upload-form">
+                        <input type="file" name="file" id="fileElem" accept="image/*" required>
+                    </form>
+                    
+                    <div class="btn-group">
+                        <label class="btn" for="fileElem">Choose File</label>
+                        <button class="btn btn-upload" id="upload-btn">Upload</button>
+                    </div>
+                </div>
+
+                <div class="feature-nav" style="justify-content: center;">
+                    <a href="/greenery" class="btn btn-outline"><i class="fa-solid fa-tree"></i> Greenery Index</a>
+                    <a href="/chatbot" class="btn btn-outline"><i class="fa-solid fa-robot"></i> AI Chatbot</a>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- 1. SETUP SCENE ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // --- 2. CREATE EARTH ---
+        const earthGroup = new THREE.Group();
+        scene.add(earthGroup);
+
+        const loader = new THREE.TextureLoader();
+
+        // High-End Material (Dark "Tech" Earth)
+        const geometry = new THREE.SphereGeometry(5, 64, 64);
+        const material = new THREE.MeshPhongMaterial({
+            map: loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg'),
+            bumpMap: loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_normal_2048.jpg'),
+            bumpScale: 0.05,
+            specularMap: loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_2048.jpg'),
+            specular: new THREE.Color('grey'),
+            color: 0xaaaaaa 
+        });
+        
+        const earth = new THREE.Mesh(geometry, material);
+        earthGroup.add(earth);
+
+        // Atmosphere Glow
+        const atmosGeometry = new THREE.SphereGeometry(5.2, 64, 64);
+        const atmosMaterial = new THREE.MeshLambertMaterial({
+            color: 0x6366f1, // Indigo Glow
+            transparent: true,
+            opacity: 0.15,
+            side: THREE.BackSide,
+            blending: THREE.AdditiveBlending
+        });
+        const atmosphere = new THREE.Mesh(atmosGeometry, atmosMaterial);
+        scene.add(atmosphere);
+
+        // --- 3. REALISTIC SATELLITE ---
+        const satGroup = new THREE.Group();
+        scene.add(satGroup);
+
+        const satelliteModel = new THREE.Group();
+        
+        // Main Bus (Body) - Gold
+        const busGeo = new THREE.BoxGeometry(0.6, 0.6, 1.2);
+        const busMat = new THREE.MeshStandardMaterial({ 
+            color: 0xffd700, metalness: 0.8, roughness: 0.2 
+        }); 
+        const bus = new THREE.Mesh(busGeo, busMat);
+        satelliteModel.add(bus);
+
+        // Solar Panels - Dark Blue/Black
+        const panelGeo = new THREE.BoxGeometry(3, 0.1, 0.8);
+        const panelMat = new THREE.MeshStandardMaterial({ 
+            color: 0x222222, metalness: 0.5, roughness: 0.1, 
+            emissive: 0x111144, emissiveIntensity: 0.2 
+        });
+        
+        const leftPanel = new THREE.Mesh(panelGeo, panelMat);
+        leftPanel.position.set(-1.8, 0, 0);
+        
+        const rightPanel = new THREE.Mesh(panelGeo, panelMat);
+        rightPanel.position.set(1.8, 0, 0);
+        
+        satelliteModel.add(leftPanel);
+        satelliteModel.add(rightPanel);
+
+        // Scale and Position on Orbit
+        satelliteModel.scale.set(0.5, 0.5, 0.5);
+        satelliteModel.position.set(7, 0, 0);
+        satelliteModel.rotation.y = Math.PI / 2; // Face panels towards earth
+        satGroup.add(satelliteModel);
+
+        // Orbit Trail (Ring)
+        const ringGeo = new THREE.RingGeometry(6.9, 7.0, 64);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.05, transparent: true, side: THREE.DoubleSide });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        satGroup.add(ring);
+
+        // Tilt the orbit
+        satGroup.rotation.z = Math.PI / 4; 
+        satGroup.rotation.x = Math.PI / 3;
+
+        // --- 4. LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0x404040, 2); 
+        scene.add(ambientLight);
+
+        const pointLight = new THREE.PointLight(0xffffff, 1.5);
+        pointLight.position.set(20, 10, 20);
+        scene.add(pointLight);
+        
+        // Directional Light for Satellite reflections
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(5, 3, 5);
+        scene.add(dirLight);
+
+        // --- 5. STARS BACKGROUND ---
+        const starGeo = new THREE.BufferGeometry();
+        const starCount = 2000;
+        const posArray = new Float32Array(starCount * 3);
+        
+        for(let i=0; i < starCount * 3; i++) {
+            posArray[i] = (Math.random() - 0.5) * 100;
+        }
+        
+        starGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const starMat = new THREE.PointsMaterial({ size: 0.05, color: 0xffffff, transparent: true, opacity: 0.8 });
+        const stars = new THREE.Points(starGeo, starMat);
+        scene.add(stars);
+
+        // --- 6. ANIMATION LOOP ---
+        camera.position.z = 13; 
+
+        // Mouse Interactivity
+        let mouseX = 0;
+        let mouseY = 0;
+        document.addEventListener('mousemove', (event) => {
+            mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Rotate Earth
+            earth.rotation.y += 0.002;
+            atmosphere.rotation.y += 0.002;
+
+            // Rotate Satellite Orbit
+            satGroup.rotation.y -= 0.005;
+            
+            // Rotate Satellite itself (Solar panels track sun)
+            satelliteModel.rotation.x += 0.002; 
+
+            // Gentle Parallax based on Mouse
+            earthGroup.rotation.x += (mouseY * 0.1 - earthGroup.rotation.x) * 0.05;
+            earthGroup.rotation.y += (mouseX * 0.1 - earthGroup.rotation.y) * 0.05;
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- 7. FILE UPLOAD LOGIC ---
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('fileElem');
+        const fileNameDisplay = document.getElementById('file-name-display');
+        const uploadForm = document.getElementById('upload-form');
+        const uploadBtn = document.getElementById('upload-btn');
+        const loading = document.getElementById('loading');
+        
+        // Drag & Drop Events
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+
+        ['dragenter', 'dragover'].forEach(() => dropArea.classList.add('dragover'));
+        ['dragleave', 'drop'].forEach(() => dropArea.classList.remove('dragover'));
+
+        // Handle File Drop
+        dropArea.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            if (files.length) {
+                fileInput.files = files;
+                updateFileName(files[0].name);
+            }
+        });
+
+        // Handle File Select via Button
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) {
+                updateFileName(fileInput.files[0].name);
+            }
+        });
+
+        function updateFileName(name) {
+            fileNameDisplay.innerText = name;
+            fileNameDisplay.style.color = "#a855f7"; // Purple color indicating selection
+            fileNameDisplay.style.fontWeight = "600";
+        }
+
+        // Handle Upload Click
+        uploadBtn.addEventListener('click', () => {
+            if (fileInput.files.length === 0) {
+                alert("Please select an image first!");
+                return;
+            }
+            loading.style.display = 'flex'; // Show loading spinner
+            uploadForm.submit(); // Submit the form to Flask
+        });
+
+    </script>
+</body>
+</html>
